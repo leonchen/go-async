@@ -5,7 +5,7 @@ import (
 	"sync"
 )
 
-func Each(data []interface{}, cb func(interface{})) {
+func Each(data []interface{}, f func(interface{})) {
 	l := len(data)
 	if l < 1 {
 		return
@@ -29,20 +29,20 @@ func Each(data []interface{}, cb func(interface{})) {
 					c <- 1
 				}
 			}()
-			cb(d)
+			f(d)
 		}()
 	}
 	<-c
 }
 
-func EachLimit(data []interface{}, limit int, cb func(interface{})) {
+func EachLimit(data []interface{}, limit int, f func(interface{})) {
 	if len(data) < 1 {
 		return
 	}
-	eachLimit(data, limit, cb)
+	eachLimit(data, limit, f)
 }
 
-func eachLimit(data []interface{}, limit int, cb func(interface{})) {
+func eachLimit(data []interface{}, limit int, f func(interface{})) {
 	ch := make(chan int, limit)
 	defer close(ch)
 
@@ -54,7 +54,7 @@ func eachLimit(data []interface{}, limit int, cb func(interface{})) {
 		d := d
 		ch <- 1
 		go func() {
-			cb(d)
+			f(d)
 			<-ch
 			wg.Done()
 		}()
@@ -62,53 +62,59 @@ func eachLimit(data []interface{}, limit int, cb func(interface{})) {
 	wg.Wait()
 }
 
-func EachCPU(data []interface{}, cb func(interface{})) {
+func EachCPU(data []interface{}, f func(interface{})) {
 	if len(data) < 1 {
 		return
 	}
 	cores := runtime.NumCPU()
-	eachLimit(data, cores, cb)
+	eachLimit(data, cores, f)
 }
 
-func EachProc(data []interface{}, cb func(interface{})) {
+func EachProc(data []interface{}, f func(interface{})) {
 	if len(data) < 1 {
 		return
 	}
 	cores := runtime.NumCPU()
 	procs := runtime.GOMAXPROCS(cores)
-	eachLimit(data, procs, cb)
+	eachLimit(data, procs, f)
 }
 
-func Map(data []interface{}, cb func(interface{}) interface{}) []interface{} {
+func Map(data []interface{}, f func(interface{}) interface{}) []interface{} {
 	l := len(data)
 	ret := make([]interface{}, l, l)
 	if l < 1 {
 		return ret
 	}
 
-	ch := make(chan int, l)
-	defer close(ch)
-	for i := 0; i < l; i++ {
-		ch <- 1
-	}
-
-	c := make(chan int, 1)
-	defer close(c)
+	var wg sync.WaitGroup
+	wg.Add(l)
 
 	for idx, d := range data {
 		idx := idx
 		d := d
 		go func() {
-			defer func() {
-				<-ch
-				if len(ch) == 0 {
-					c <- 1
-				}
-			}()
-			ret[idx] = cb(d)
+			defer wg.Done()
+			ret[idx] = f(d)
 		}()
 	}
 
-	<-c
+	wg.Wait()
+	return ret
+}
+
+func Times(n int, f func(int) interface{}) []interface{} {
+	ret := make([]interface{}, n, n)
+	var wg sync.WaitGroup
+	wg.Add(n)
+
+	for i := 0; i < n; i++ {
+		i := i
+		go func() {
+			defer wg.Done()
+			ret[i] = f(i)
+		}()
+	}
+
+	wg.Wait()
 	return ret
 }
